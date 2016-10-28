@@ -1264,16 +1264,23 @@ defmodule Swarm.Tracker do
       ignore_node?(node) ->
         {:ok, state}
       :else ->
-        case :rpc.call(node, :application, :ensure_all_started, [:swarm]) do
-          {:ok, _} ->
-            info "nodeup #{node}"
-            new_state = %{state | nodes: [node|nodes], ring: HashRing.add_node(ring, node)}
-            {:ok, new_state, {:topology_change, {:nodeup, node}}}
+        # ensure that the new node's kernel has fully started.
+        with {:ok, _} <- ensure_all_started(node, :kernel),
+             {:ok, _} <- ensure_all_started(node, :swarm)
+        do
+          info "nodeup #{node}"
+          new_state = %{state | nodes: [node|nodes], ring: HashRing.add_node(ring, node)}
+          {:ok, new_state, {:topology_change, {:nodeup, node}}}
+        else
           other ->
             warn "nodeup for #{node} was ignored because swarm failed to start: #{inspect other}"
             {:ok, state}
         end
     end
+  end
+
+  defp ensure_all_started(node, app) do
+    :rpc.call(node, :application, :ensure_all_started, [app])
   end
 
   # A remote node went down, we need to update the hash ring and handle restarting/shifting processes
